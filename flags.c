@@ -439,6 +439,38 @@ done:
 }
 
 /**
+ * mutt_thread_set_flag - Set a flag on an entire thread
+ * @param m         Mailbox
+ * @param ea        Email array
+ * @param flag      Flag to set, e.g. #MUTT_DELETE
+ * @param bf        true: set the flag; false: clear the flag
+ * @param subthread If true apply to all of the thread
+ * @retval  0 Success
+ * @retval -1 Failure
+ */
+int mutt_threads_set_flag(struct Mailbox *m, struct EmailArray *ea,
+                          enum MessageType flag, bool bf, bool subthread)
+{
+  if (!ea || ARRAY_EMPTY(ea))
+    return -1;
+
+  if (!mutt_using_threads()) {
+    mutt_error(_("Threading is not enabled"));
+    return -1;
+  }
+
+  struct Email **ep = NULL;
+  ARRAY_FOREACH(ep, ea)
+  {
+    struct Email *e = *ep;
+
+    mutt_thread_set_flag(m, e, flag, bf, subthread);
+  }
+
+  return 0;
+}
+
+/**
  * mw_change_flag - Change the flag on a Message - @ingroup gui_mw
  * @param m  Mailbox
  * @param ea Array of Emails to change

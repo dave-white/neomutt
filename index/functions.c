@@ -562,8 +562,12 @@ static int op_delete_thread(struct IndexSharedData *shared,
   if (!shared->email)
     return FR_NO_ACTION;
 
+  struct EmailArray ea = ARRAY_HEAD_INITIALIZER;
+  ea_add_tagged(&ea, shared->mailbox_view, shared->email, priv->tag_prefix);
+
   int subthread = (op == OP_DELETE_SUBTHREAD);
-  int rc = mutt_thread_set_flag(shared->mailbox, shared->email, MUTT_DELETE, true, subthread);
+  int rc = mutt_threads_set_flag(shared->mailbox, &ea, MUTT_DELETE, true,
+                                 subthread);
   if (rc == -1)
     return FR_ERROR;
   if (op == OP_PURGE_THREAD)
