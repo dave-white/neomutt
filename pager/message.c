@@ -181,20 +181,27 @@ static int email_to_file(struct Message *msg, struct Buffer *tempfile,
   {
     if (e->security & SEC_ENCRYPT)
     {
-      if (e->security & APPLICATION_SMIME)
+      if (e->security & APPLICATION_PGP) {
+        *cmflags |= MUTT_CM_VERIFY_PGP;
+      } else if (e->security & APPLICATION_SMIME) {
         crypt_smime_getkeys(e->env);
+        *cmflags |= MUTT_CM_VERIFY_SMIME;
+      }
       if (!crypt_valid_passphrase(e->security))
         goto cleanup;
-
-      *cmflags |= MUTT_CM_VERIFY;
     }
     else if (e->security & SEC_SIGN)
     {
       /* find out whether or not the verify signature */
       /* L10N: Used for the $crypt_verify_sig prompt */
-      if (query_quadoption(_("Verify signature?"), NeoMutt->sub, "crypt_verify_sig") == MUTT_YES)
-      {
-        *cmflags |= MUTT_CM_VERIFY;
+      if (e->security & APPLICATION_PGP &&
+          query_quadoption(_("Verify PGP signature?"), NeoMutt->sub,
+                           "pgp_verify_sig") == MUTT_YES) {
+	      *cmflags |= MUTT_CM_VERIFY_PGP;
+      } else if (e->security & APPLICATION_SMIME &&
+                 query_quadoption(_("Verify S/MIME signature?"), NeoMutt->sub,
+                                  "smime_verify_sig") == MUTT_YES) {
+        *cmflags |= MUTT_CM_VERIFY_SMIME;
       }
     }
   }
@@ -360,26 +367,26 @@ cleanup:
  */
 static void notify_crypto(struct Email *e, struct Message *msg, CopyMessageFlags cmflags)
 {
-  if ((WithCrypto != 0) && (e->security & APPLICATION_SMIME) && (cmflags & MUTT_CM_VERIFY))
-  {
-    if (e->security & SEC_GOODSIGN)
-    {
-      if (crypt_smime_verify_sender(e, msg) == 0)
-        mutt_message(_("S/MIME signature successfully verified"));
-      else
-        mutt_error(_("S/MIME certificate owner does not match sender"));
-    }
-    else if (e->security & SEC_PARTSIGN)
-    {
-      mutt_message(_("Warning: Part of this message has not been signed"));
-    }
-    else if (e->security & SEC_SIGN || e->security & SEC_BADSIGN)
-    {
-      mutt_error(_("S/MIME signature could NOT be verified"));
-    }
-  }
+	if ((WithCrypto != 0) && (e->security & APPLICATION_SMIME) &&
+	    (cmflags & MUTT_CM_VERIFY_SMIME)) {
+		if (e->security & SEC_GOODSIGN) {
+			if (crypt_smime_verify_sender(e, msg) == 0)
+				mutt_message(_(
+					"S/MIME signature successfully verified"));
+			else
+				mutt_error(_(
+					"S/MIME certificate owner does not match sender"));
+		} else if (e->security & SEC_PARTSIGN) {
+			mutt_message(_(
+				"Warning: Part of this message has not been signed"));
+		} else if (e->security & SEC_SIGN ||
+			   e->security & SEC_BADSIGN) {
+			mutt_error(_("S/MIME signature could NOT be verified"));
+		}
+	}
 
-  if ((WithCrypto != 0) && (e->security & APPLICATION_PGP) && (cmflags & MUTT_CM_VERIFY))
+  if ((WithCrypto != 0) && (e->security & APPLICATION_PGP) && (cmflags & 
+                                                               MUTT_CM_VERIFY_PGP))
   {
     if (e->security & SEC_GOODSIGN)
       mutt_message(_("PGP signature successfully verified"));

@@ -190,11 +190,14 @@ static struct ConfigDef NcryptVars[] = {
   { "smime_is_default", DT_BOOL, false, 0, NULL,
     "Use SMIME rather than PGP by default"
   },
+  { "smime_verify_sig", DT_QUAD, MUTT_YES, 0, NULL,
+    "Verify SMIME signatures"
+  },
   { "pgp_auto_decode", DT_BOOL, false, 0, NULL,
     "Automatically decrypt PGP messages"
   },
-  { "crypt_verify_sig", DT_QUAD, MUTT_YES, 0, NULL,
-    "Verify PGP or SMIME signatures"
+  { "pgp_verify_sig", DT_QUAD, MUTT_YES, 0, NULL,
+    "Verify PGP signatures"
   },
   { "crypt_protected_headers_save", DT_BOOL, false, 0, NULL,
     "Save the cleartext Subject with the headers"
@@ -205,7 +208,6 @@ static struct ConfigDef NcryptVars[] = {
   { "pgp_create_traditional", DT_SYNONYM, IP "pgp_auto_inline",    IP "2004-04-12" },
   { "pgp_self_encrypt_as",    DT_SYNONYM, IP "pgp_default_key",    IP "2018-01-11" },
   { "pgp_sort_keys",          DT_SYNONYM, IP "pgp_key_sort",       IP "2024-11-20" },
-  { "pgp_verify_sig",         DT_SYNONYM, IP "crypt_verify_sig",   IP "2002-01-24" },
   { "smime_self_encrypt_as",  DT_SYNONYM, IP "smime_default_key",  IP "2018-01-11" },
 
   { "pgp_encrypt_self",   D_INTERNAL_DEPRECATED|DT_QUAD, 0, IP "2019-09-09" },

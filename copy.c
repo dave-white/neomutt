@@ -795,8 +795,15 @@ int mutt_copy_message_fp(FILE *fp_out, FILE *fp_in, struct Email *e,
     if (cmflags & MUTT_CM_REPLYING)
       state.flags |= STATE_REPLYING;
 
-    if ((WithCrypto != 0) && cmflags & MUTT_CM_VERIFY)
-      state.flags |= STATE_VERIFY;
+    // if ((WithCrypto != 0) && cmflags & MUTT_CM_VERIFY) {
+    //   if ((e->security & APPLICATION_PGP) &&
+    //       (cmflags & MUTT_CM_VERIFY_PGP)) {
+    //     state.flags |= STATE_VERIFY;
+    //   } else if ((e->security & APPLICATION_SMIME) &&
+    //              (cmflags & MUTT_CM_VERIFY_SMIME)) {
+    //     state.flags |= STATE_VERIFY;
+    //   }
+    // }
 
     rc = mutt_body_handler(body, &state);
   }
