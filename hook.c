@@ -57,6 +57,9 @@
 #include "globals.h"
 #include "muttlib.h"
 #include "mx.h"
+#include "core/neomutt.h"
+#include "conn/lib.h"
+#include "imap/lib.h"
 
 extern const struct ExpandoDefinition IndexFormatDef[];
 
@@ -772,9 +775,179 @@ static int addr_hook(struct Buffer *path, HookFlags type, struct Mailbox *m, str
 }
 
 /**
+ * last_path_component - Extract the last component of a URI path.
+ * @param[in] path URI path
+ * @param[in] delim delimiter character
+ * @retval ptr Final piece of URI path (which may be the whole path if no 
+ * delimiter is found.
+ */
+static const char *last_path_component(const char *path, const char delim)
+{
+  // Take the last component of the path, from the last instance of `delim` 
+  // onward.
+  const char *last_component = strrchr(path, delim);
+  if (last_component)
+    // TODO: Handle trailing delimiter.
+    return last_component++; // Skip over the leading '/'.
+  else
+    // No instance of the delimiter found, so return the whole path.
+    return path;
+
+  return mutt_str_dup(last_component);
+}
+
+/**
+ * extract_folder_name - Extract folder name from mailbox path
+ * @param mailbox Mailbox to extract folder name from
+ * @retval ptr Folder name (must be freed by caller)
+ * @retval NULL Error or no folder name found
+ */
+static char *extract_folder_name(struct Mailbox *mailbox)
+{
+  if (!mailbox)
+    return NULL;
+
+  const char *path = mailbox_path(mailbox);
+  if (!path)
+    return NULL;
+
+  // For IMAP mailboxes extract the folder name from the URL
+  if (mailbox->type == MUTT_IMAP)
+  {
+    struct ConnAccount cac = { { 0 } };
+    char imap_folder[1024] = { 0 };
+
+    if (!imap_parse_path(path, &cac, imap_folder, sizeof(imap_folder)))
+    {
+       return mutt_str_dup(last_path_component(imap_folder, '/'));
+    }
+  }
+
+  // For local mailboxes use the name if it exists
+  if (mailbox->name && *mailbox->name)
+  {
+    return mutt_str_dup(mailbox->name);
+  }
+  
+  // If the local mailbox has no name, extract it from the path as above for 
+  // IMAP
+  return mutt_str_dup(last_path_component(path, '/'));
+}
+
+/**
+ * find_folder_matching_subject - Find a folder whose name matches words in the subject
+ * @param subject Email subject line
+ * @retval ptr Path to matching folder
+ * @retval NULL No matching folder found
+ */
+static char *find_folder_matching_subject(const char *subject)
+{
+  if (!subject || !*subject)
+    return NULL;
+
+  // List all mailboxes.
+  struct MailboxList ml = STAILQ_HEAD_INITIALIZER(ml);
+  neomutt_mailboxlist_get_all(&ml, NeoMutt, MUTT_MAILBOX_ANY);
+  
+  // No mailboxes found.
+  if (STAILQ_EMPTY(&ml))
+  {
+    neomutt_mailboxlist_clear(&ml);
+    return NULL;
+  }
+
+  // Create a copy of subject to tokenize.
+  char *subject_copy = mutt_str_dup(subject);
+  if (!subject_copy)
+  {
+    neomutt_mailboxlist_clear(&ml);
+    return NULL;
+  }
+
+  // Remove email prefixes "Re:", "Fwd:".
+  char *clean_subject = subject_copy;
+  while (*clean_subject)
+  {
+    if (mutt_istr_startswith(clean_subject, "re:") ||
+        mutt_istr_startswith(clean_subject, "fwd:") ||
+        mutt_istr_startswith(clean_subject, "fw:"))
+    {
+      clean_subject = strchr(clean_subject, ':');
+      if (clean_subject)
+      {
+        // Move forward one to lop off the colon.
+        clean_subject++;
+        SKIPWS(clean_subject);
+      }
+      else
+      {
+        break;
+      }
+    }
+    else
+    {
+      break;
+    }
+  }
+
+  // No significant content in the subject.
+  if (!clean_subject || !*clean_subject)
+  {
+    FREE(&subject_copy);
+    neomutt_mailboxlist_clear(&ml);
+    return NULL;
+  }
+
+  char *result = NULL;
+  
+  // Tokenize the subject and check each word against folder names.
+  char *word = strtok(clean_subject, " \t\n\r.,;:!?()[]{}\"'");
+  while (word && !result)
+  {
+    // Skip very short words (less than 3 characters).
+    if (strlen(word) < 3)
+    {
+      word = strtok(NULL, " \t\n\r.,;:!?()[]{}\"'");
+      continue;
+    }
+
+    // Check each mailbox for a match against the token at this interation.
+    struct MailboxNode *np = NULL;
+    STAILQ_FOREACH(np, &ml, entries)
+    {
+      if (!np->mailbox)
+        continue;
+
+      // Extract the folder name using the appropriate method for the mailbox 
+      // type.
+      char *folder_name = extract_folder_name(np->mailbox);
+      if (!folder_name)
+        continue;
+
+      // Case-insensitive substring match
+      if (mutt_istr_find(folder_name, word))
+      {
+        result = mutt_str_dup(mailbox_path(np->mailbox));
+        FREE(&folder_name);
+        break;
+      }
+      
+      FREE(&folder_name);
+    }
+    
+    word = strtok(NULL, " \t\n\r.,;:!?()[]{}\"'");
+  }
+
+  // Cleanup
+  FREE(&subject_copy);
+  neomutt_mailboxlist_clear(&ml);
+  return result;
+}
+
+/**
  * mutt_default_save - Find the default save path for an email
- * @param path  Buffer for the path
- * @param e     Email
+ * @param[out] path  Buffer for the path
+ * @param[in]  e     Email
  */
 void mutt_default_save(struct Buffer *path, struct Email *e)
 {
@@ -782,31 +955,20 @@ void mutt_default_save(struct Buffer *path, struct Email *e)
   if (addr_hook(path, MUTT_SAVE_HOOK, m_cur, e) == 0)
     return;
 
-  struct Envelope *env = e->env;
-  const struct Address *from = TAILQ_FIRST(&env->from);
-  const struct Address *reply_to = TAILQ_FIRST(&env->reply_to);
-  const struct Address *to = TAILQ_FIRST(&env->to);
-  const struct Address *cc = TAILQ_FIRST(&env->cc);
-  const struct Address *addr = NULL;
-  bool from_me = mutt_addr_is_user(from);
-
-  if (!from_me && reply_to && reply_to->mailbox)
-    addr = reply_to;
-  else if (!from_me && from && from->mailbox)
-    addr = from;
-  else if (to && to->mailbox)
-    addr = to;
-  else if (cc && cc->mailbox)
-    addr = cc;
-  else
-    addr = NULL;
-  if (addr)
+  // Seek a folder matching a (significant) word in the subject line.
+  if (e->env && e->env->subject)
   {
-    struct Buffer *tmp = buf_pool_get();
-    mutt_safe_path(tmp, addr);
-    buf_add_printf(path, "=%s", buf_string(tmp));
-    buf_pool_release(&tmp);
+    char *matching_folder = find_folder_matching_subject(e->env->subject);
+    if (matching_folder)
+    {
+      buf_strcpy(path, matching_folder);
+      FREE(&matching_folder);
+      return;
+    }
   }
+
+  // No matching mailbox found, so nullify the path.
+  buf_reset(path);
 }
 
 /**

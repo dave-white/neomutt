@@ -842,9 +842,25 @@ int mutt_save_message(struct Mailbox *m, struct EmailArray *ea,
   mutt_default_save(buf, e_cur);
   buf_pretty_mailbox(buf);
 
-  if (mw_enter_fname(prompt, buf, false, NULL, false, NULL, NULL, MUTT_SEL_NO_FLAGS) == -1)
+  // If no default path was found, go directly to the mailbox browser.
+  if (buf_is_empty(buf))
   {
-    goto cleanup;
+    SelectFileFlags flags = MUTT_SEL_FOLDER | MUTT_SEL_MAILBOX;
+    dlg_browser(buf, flags, m, NULL, NULL);
+    if (buf_is_empty(buf))
+    {
+      // Nothing entered from the mailbox browser.
+      goto cleanup;
+    }
+  }
+  // Enter default in the prompt for the user to edit.
+  else
+  {
+    if (mw_enter_fname(prompt, buf, false, NULL, false, NULL, NULL, 
+                       MUTT_SEL_NO_FLAGS) == -1)
+    {
+      goto cleanup;
+    }
   }
 
   size_t pathlen = buf_len(buf);
